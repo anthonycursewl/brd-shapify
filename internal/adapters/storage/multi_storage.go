@@ -1,3 +1,4 @@
+// Package storage provides implementations for file storage adapters.
 package storage
 
 import (

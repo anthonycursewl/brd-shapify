@@ -1,3 +1,4 @@
+// Package handlers handles HTTP requests for media processing.
 package handlers
 
 import (

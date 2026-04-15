@@ -1,3 +1,4 @@
+// Package handlers handles HTTP requests for authentication and user management.
 package handlers
 
 import (

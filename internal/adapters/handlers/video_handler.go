@@ -1,3 +1,4 @@
+// Package handlers handles HTTP requests for video processing.
 package handlers
 
 import (
@@ -8,6 +9,7 @@ import (
 
 	"brd-shapify/internal/adapters/imaging"
 	"brd-shapify/internal/core/services"
+
 	"github.com/gofiber/fiber/v2"
 )
 

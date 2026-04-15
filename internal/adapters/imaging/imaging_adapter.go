@@ -1,3 +1,4 @@
+// Package imaging handles image processing operations.
 package imaging
 
 import (

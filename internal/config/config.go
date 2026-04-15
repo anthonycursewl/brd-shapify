@@ -1,3 +1,4 @@
+// Package config handles the application configuration loading and validation.
 package config
 
 import (

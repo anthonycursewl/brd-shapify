@@ -1,3 +1,4 @@
+// Package storage handles user authentication and API key management.
 package storage
 
 import (
@@ -11,6 +12,7 @@ import (
 	"brd-shapify/internal/core/domain"
 	"brd-shapify/internal/logger"
 	"brd-shapify/internal/utils"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"

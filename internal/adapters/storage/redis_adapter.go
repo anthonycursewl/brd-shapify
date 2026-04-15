@@ -1,3 +1,4 @@
+// Package storage handles Redis storage adapters.
 package storage
 
 import (
