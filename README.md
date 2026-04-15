@@ -1,4 +1,8 @@
-![Shapify Logo](1776277095_16ffd545277f8026.png)
+
+
+<div align="center">
+  <img src="1776277095_16ffd545277f8026.png" alt="Shapify Logo" width="200" height="200">
+</div>
 
 # Shapify - Image Processing API
 
@@ -98,7 +102,7 @@ Shapify is a production-ready image processing API built with Go (Golang) using 
 ### 1. Clone and Install Dependencies
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/anthonycursewl/brd-shapify.git
 cd brd-shapify
 go mod download
 ```
@@ -554,6 +558,5 @@ MIT License - see LICENSE file for details.
 
 ## Support
 
-For issues and questions:
-- GitHub Issues: [repository-url]/issues
-- Email: support@shapify.dev
+For questions:
+- Email: hello@breadriuss.com
