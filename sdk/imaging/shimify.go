@@ -38,7 +38,7 @@ type ConvertRequest struct {
 type ProcessResponse struct {
 	Success bool   `json:"success"`
 	ID      string `json:"id"`
-	Data    string `json:"data,omitempty"` // base64 result
+	Data    string `json:"data,omitempty"`
 }
 
 func New(baseURL, apiKey string) *ImageClient {
