@@ -1,3 +1,4 @@
+// Package domain handles the core domain entities.
 package domain
 
 import "time"

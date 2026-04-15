@@ -1,3 +1,4 @@
+// Package shimify provides a client for the Shimify API.
 package shimify
 
 import (
@@ -151,9 +152,7 @@ func (c *ImageClient) Convert(imageData []byte, format string, quality int) ([]b
 	return c.GetImage(result.ID)
 }
 
-// UploadAndResize uploads an image URL, processes it, and returns the processed bytes
 func (c *ImageClient) UploadAndResize(imageURL string, width, height int, format string) ([]byte, error) {
-	// Download image
 	resp, err := http.Get(imageURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download image: %w", err)
@@ -165,6 +164,5 @@ func (c *ImageClient) UploadAndResize(imageURL string, width, height int, format
 		return nil, fmt.Errorf("failed to read image: %w", err)
 	}
 
-	// Resize
 	return c.Resize(imageData, width, height, format)
 }

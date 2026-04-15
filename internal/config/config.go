@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -15,6 +16,28 @@ type Config struct {
 	RedisDB       int
 	JWTSecret     string
 	Port          string
+}
+
+func init() {
+	loadEnvFile()
+}
+
+func loadEnvFile() {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+		if idx := strings.Index(line, "="); idx > 0 {
+			key := line[:idx]
+			value := line[idx+1:]
+			os.Setenv(key, value)
+		}
+	}
 }
 
 func Load() *Config {
