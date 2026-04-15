@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"brd-shapify/internal/adapters/storage"
+	"brd-shapify/internal/core/domain"
 	"brd-shapify/internal/core/middleware"
 	"brd-shapify/internal/core/services"
 	"brd-shapify/internal/logger"
@@ -21,11 +23,12 @@ import (
 )
 
 type MediaHandler struct {
-	service *services.MediaService
+	service     *services.MediaService
+	userAdapter *storage.UserAdapter
 }
 
-func NewMediaHandler(s *services.MediaService) *MediaHandler {
-	return &MediaHandler{service: s}
+func NewMediaHandler(s *services.MediaService, ua *storage.UserAdapter) *MediaHandler {
+	return &MediaHandler{service: s, userAdapter: ua}
 }
 
 type ImageRequest struct {
@@ -136,6 +139,20 @@ func (h *MediaHandler) Resize(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
+		if userID, ok := c.Locals("user_id").(string); ok && userID != "" && h.userAdapter != nil {
+			imgRecord := &domain.ProcessedImage{
+				UserID:         userID,
+				ImageID:        id,
+				Format:         req.Format,
+				Width:          req.Width,
+				Height:         req.Height,
+				OriginalSize:   originalSize,
+				CompressedSize: compressedSize,
+				ChangePercent:  changePercent,
+			}
+			go h.userAdapter.SaveProcessedImage(imgRecord)
+		}
+
 		return c.JSON(ResizeResponse{
 			Success:        true,
 			ID:             id,
@@ -202,6 +219,20 @@ func (h *MediaHandler) Resize(c *fiber.Ctx) error {
 	id := generateID(format)
 	if err := h.service.Save(id, fileData); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if userID, ok := c.Locals("user_id").(string); ok && userID != "" && h.userAdapter != nil {
+		imgRecord := &domain.ProcessedImage{
+			UserID:         userID,
+			ImageID:        id,
+			Format:         format,
+			Width:          width,
+			Height:         height,
+			OriginalSize:   originalSize,
+			CompressedSize: compressedSize,
+			ChangePercent:  changePercent,
+		}
+		go h.userAdapter.SaveProcessedImage(imgRecord)
 	}
 
 	return c.JSON(fiber.Map{

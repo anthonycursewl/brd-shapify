@@ -171,6 +171,44 @@ func (h *AuthHandler) ListAPIKeys(c *fiber.Ctx) error {
 	})
 }
 
+func (h *AuthHandler) ListImages(c *fiber.Ctx) error {
+	authHeader := c.Get("Authorization")
+	if authHeader == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Authorization header required",
+		})
+	}
+
+	token := authHeader[7:]
+	user, err := h.userAdapter.ValidateToken(token)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	page := c.QueryInt("page", 1)
+	limit := c.QueryInt("limit", 20)
+
+	images, total, err := h.userAdapter.GetUserImages(user.ID, page, limit)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	totalPages := (total + limit - 1) / limit
+
+	return c.JSON(fiber.Map{
+		"success":    true,
+		"images":     images,
+		"total":      total,
+		"page":       page,
+		"limit":      limit,
+		"totalPages": totalPages,
+	})
+}
+
 func (h *AuthHandler) DeleteAPIKey(c *fiber.Ctx) error {
 	authHeader := c.Get("Authorization")
 	if authHeader == "" {

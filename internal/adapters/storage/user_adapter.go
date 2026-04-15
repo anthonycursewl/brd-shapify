@@ -21,10 +21,11 @@ import (
 var jwtSecret = []byte("brd-shapify-secret-key-change-in-production")
 
 type UserAdapter struct {
-	userColl *mongo.Collection
-	keyColl  *mongo.Collection
-	maxKeys  int
-	client   *mongo.Client
+	userColl  *mongo.Collection
+	keyColl   *mongo.Collection
+	imageColl *mongo.Collection
+	maxKeys   int
+	client    *mongo.Client
 }
 
 func NewUserAdapter(mongoURI, dbName string, maxKeys int, timeout int) (*UserAdapter, error) {
@@ -54,11 +55,17 @@ func NewUserAdapter(mongoURI, dbName string, maxKeys int, timeout int) (*UserAda
 		Options: options.Index().SetUnique(true),
 	})
 
+	imageColl := db.Collection("processed_images")
+	imageColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}},
+	})
+
 	return &UserAdapter{
-		userColl: userColl,
-		keyColl:  keyColl,
-		maxKeys:  maxKeys,
-		client:   client,
+		userColl:  userColl,
+		keyColl:   keyColl,
+		imageColl: imageColl,
+		maxKeys:   maxKeys,
+		client:    client,
 	}, nil
 }
 
@@ -356,6 +363,54 @@ func generateID() string {
 	b := make([]byte, 12)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func (a *UserAdapter) SaveProcessedImage(img *domain.ProcessedImage) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	img.ID = generateID()
+	img.CreatedAt = time.Now()
+
+	_, err := a.imageColl.InsertOne(ctx, img)
+	return err
+}
+
+func (a *UserAdapter) GetUserImages(userID string, page, limit int) ([]*domain.ProcessedImage, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+
+	skip := (page - 1) * limit
+
+	total, err := a.imageColl.CountDocuments(ctx, bson.M{"user_id": userID})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	opts := options.Find().
+		SetLimit(int64(limit)).
+		SetSkip(int64(skip)).
+		SetSort(bson.D{{Key: "created_at", Value: -1}})
+
+	cursor, err := a.imageColl.Find(ctx, bson.M{"user_id": userID}, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var images []*domain.ProcessedImage
+	if err := cursor.All(ctx, &images); err != nil {
+		return nil, 0, err
+	}
+
+	return images, int(total), nil
 }
 
 func generateKey() string {

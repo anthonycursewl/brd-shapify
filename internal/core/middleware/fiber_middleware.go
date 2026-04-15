@@ -69,6 +69,7 @@ func (k *KeyAuthMiddleware) Handler(c *fiber.Ctx) error {
 				k.cache.Set(ctx, "key:"+key, "valid", 24*time.Hour)
 			}
 			c.Locals("api_key", apiKey)
+			c.Locals("user_id", apiKey.CreatedBy)
 			return c.Next()
 		}
 	}
