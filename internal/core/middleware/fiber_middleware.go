@@ -2,12 +2,12 @@ package middleware
 
 import (
 	"context"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"brd-shapify/internal/adapters/storage"
+	"brd-shapify/internal/logger"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/redis/go-redis/v9"
@@ -38,7 +38,7 @@ func (k *KeyAuthMiddleware) Handler(c *fiber.Ctx) error {
 		key = c.Query("api_key")
 	}
 
-	log.Printf("[KEY_AUTH] Received key: %s", key)
+	logger.Info("[KEY_AUTH] Received key: %s", key)
 
 	if key == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -51,17 +51,17 @@ func (k *KeyAuthMiddleware) Handler(c *fiber.Ctx) error {
 		defer cancel()
 		cached, err := k.cache.Get(ctx, "key:"+key).Result()
 		if err == nil && cached == "valid" {
-			log.Printf("[KEY_AUTH] Key found in cache: %s", key)
+			logger.Info("[KEY_AUTH] Key found in cache: %s", key)
 			return c.Next()
 		}
 	}
 
 	if k.userAdapter != nil {
-		log.Printf("[KEY_AUTH] Checking MongoDB for key: %s", key)
+		logger.Info("[KEY_AUTH] Checking MongoDB for key: %s", key)
 		apiKey, err := k.userAdapter.GetAPIKey(key)
-		log.Printf("[KEY_AUTH] MongoDB result: key=%+v, error=%v", apiKey, err)
+		logger.Info("[KEY_AUTH] MongoDB result: key=%+v, error=%v", apiKey, err)
 		if err == nil && apiKey.Active && !apiKey.IsExpired() {
-			log.Printf("[KEY_AUTH] Key is valid: %s", key)
+			logger.Info("[KEY_AUTH] Key is valid: %s", key)
 			k.userAdapter.UpdateKeyUsage(key)
 			if k.cache != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -77,7 +77,7 @@ func (k *KeyAuthMiddleware) Handler(c *fiber.Ctx) error {
 	valid := k.fallback[key]
 	k.mu.RUnlock()
 
-	log.Printf("[KEY_AUTH] Valid in fallback: %v", valid)
+	logger.Info("[KEY_AUTH] Valid in fallback: %v", valid)
 
 	if !valid {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -85,7 +85,7 @@ func (k *KeyAuthMiddleware) Handler(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Printf("[KEY_AUTH] Key is valid: %s", key)
+	logger.Info("[KEY_AUTH] Key is valid: %s", key)
 	c.Locals("api_key", key)
 	return c.Next()
 }
@@ -131,15 +131,15 @@ func (r *RateLimiterMiddleware) cleanup() {
 }
 
 func (r *RateLimiterMiddleware) Handler(c *fiber.Ctx) error {
-	log.Printf("[RATE_LIMITER] Starting check")
+	logger.Info("[RATE_LIMITER] Starting check")
 	ip := c.IP()
 	if xff := c.Get("X-Forwarded-For"); xff != "" {
 		ip = strings.Split(xff, ",")[0]
 	}
-	log.Printf("[RATE_LIMITER] IP: %s", ip)
+	logger.Info("[RATE_LIMITER] IP: %s", ip)
 
 	r.mu.Lock()
-	log.Printf("[RATE_LIMITER] Lock acquired")
+	logger.Info("[RATE_LIMITER] Lock acquired")
 	now := time.Now()
 	windowStart := now.Add(-r.window)
 
@@ -150,11 +150,11 @@ func (r *RateLimiterMiddleware) Handler(c *fiber.Ctx) error {
 			validRequests = append(validRequests, t)
 		}
 	}
-	log.Printf("[RATE_LIMITER] Valid requests: %d/%d", len(validRequests), r.limit)
+	logger.Info("[RATE_LIMITER] Valid requests: %d/%d", len(validRequests), r.limit)
 
 	if len(validRequests) >= r.limit {
 		r.mu.Unlock()
-		log.Printf("[RATE_LIMITER] Rate limit exceeded")
+		logger.Info("[RATE_LIMITER] Rate limit exceeded")
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": "Rate limit exceeded",
 		})
@@ -162,7 +162,7 @@ func (r *RateLimiterMiddleware) Handler(c *fiber.Ctx) error {
 
 	r.requests[ip] = append(validRequests, now)
 	r.mu.Unlock()
-	log.Printf("[RATE_LIMITER] Passed")
+	logger.Info("[RATE_LIMITER] Passed")
 
 	return c.Next()
 }

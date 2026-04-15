@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"brd-shapify/internal/core/domain"
+	"brd-shapify/internal/logger"
 	"brd-shapify/internal/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -20,23 +20,11 @@ import (
 
 var jwtSecret = []byte("brd-shapify-secret-key-change-in-production")
 
-func generateID() string {
-	b := make([]byte, 12)
-	rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-func generateKey() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return "sk_" + hex.EncodeToString(b)
-}
-
 type UserAdapter struct {
 	userColl *mongo.Collection
 	keyColl  *mongo.Collection
 	maxKeys  int
-	ctx      context.Context
+	client   *mongo.Client
 }
 
 func NewUserAdapter(mongoURI, dbName string, maxKeys int, timeout int) (*UserAdapter, error) {
@@ -70,11 +58,14 @@ func NewUserAdapter(mongoURI, dbName string, maxKeys int, timeout int) (*UserAda
 		userColl: userColl,
 		keyColl:  keyColl,
 		maxKeys:  maxKeys,
-		ctx:      ctx,
+		client:   client,
 	}, nil
 }
 
 func (a *UserAdapter) Register(req domain.RegisterRequest, ip string) (*domain.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -94,7 +85,7 @@ func (a *UserAdapter) Register(req domain.RegisterRequest, ip string) (*domain.U
 		CreatedAt: time.Now(),
 	}
 
-	_, err = a.userColl.InsertOne(a.ctx, user)
+	_, err = a.userColl.InsertOne(ctx, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
@@ -103,8 +94,11 @@ func (a *UserAdapter) Register(req domain.RegisterRequest, ip string) (*domain.U
 }
 
 func (a *UserAdapter) Login(req domain.LoginRequest) (string, *domain.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var user domain.User
-	err := a.userColl.FindOne(a.ctx, bson.M{"email": req.Email}).Decode(&user)
+	err := a.userColl.FindOne(ctx, bson.M{"email": req.Email}).Decode(&user)
 	if err != nil {
 		return "", nil, errors.New("invalid credentials")
 	}
@@ -119,7 +113,7 @@ func (a *UserAdapter) Login(req domain.LoginRequest) (string, *domain.User, erro
 
 	token, _, _ := utils.GenerateToken(user.ID, user.Email, user.Role)
 
-	a.userColl.UpdateOne(a.ctx, bson.M{"_id": user.ID}, bson.M{
+	a.userColl.UpdateOne(ctx, bson.M{"_id": user.ID}, bson.M{
 		"$set": bson.M{"last_login": time.Now()},
 	})
 
@@ -135,7 +129,10 @@ func (a *UserAdapter) ValidateToken(tokenString string) (*domain.User, error) {
 }
 
 func (a *UserAdapter) CreateKeyForUser(userID string, req domain.CreateKeyRequest) (*domain.APIKey, error) {
-	count, err := a.keyColl.CountDocuments(a.ctx, bson.M{"created_by": userID})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	count, err := a.keyColl.CountDocuments(ctx, bson.M{"created_by": userID})
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +142,7 @@ func (a *UserAdapter) CreateKeyForUser(userID string, req domain.CreateKeyReques
 
 	key := generateKey()
 
-	res, err := a.keyColl.InsertOne(a.ctx, bson.M{
+	res, err := a.keyColl.InsertOne(ctx, bson.M{
 		"key":        key,
 		"name":       req.Name,
 		"role":       req.Role,
@@ -172,18 +169,18 @@ func (a *UserAdapter) CreateKeyForUser(userID string, req domain.CreateKeyReques
 		CreatedBy: userID,
 	}
 
-	log.Printf("[CREATE_KEY] Updating user %s keys_used counter", userID)
+	logger.Info("[CREATE_KEY] Updating user %s keys_used counter", userID)
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
-		log.Printf("[CREATE_KEY] Invalid user ObjectID: %v", err)
+		logger.Warn("[CREATE_KEY] Invalid user ObjectID: %v", err)
 	} else {
-		updateResult, err := a.userColl.UpdateOne(a.ctx, bson.M{"_id": userObjID}, bson.M{
+		updateResult, err := a.userColl.UpdateOne(ctx, bson.M{"_id": userObjID}, bson.M{
 			"$inc": bson.M{"keys_used": 1},
 		})
 		if err != nil {
-			log.Printf("[CREATE_KEY] ERROR updating keys_used: %v", err)
+			logger.Error("[CREATE_KEY] ERROR updating keys_used: %v", err)
 		} else {
-			log.Printf("[CREATE_KEY] keys_used update result: matched=%d modified=%d", updateResult.MatchedCount, updateResult.ModifiedCount)
+			logger.Info("[CREATE_KEY] keys_used update result: matched=%d modified=%d", updateResult.MatchedCount, updateResult.ModifiedCount)
 		}
 	}
 
@@ -191,7 +188,7 @@ func (a *UserAdapter) CreateKeyForUser(userID string, req domain.CreateKeyReques
 }
 
 func (a *UserAdapter) GetAPIKey(key string) (*domain.APIKey, error) {
-	ctx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var apiKey domain.APIKey
@@ -207,20 +204,23 @@ func (a *UserAdapter) GetAPIKey(key string) (*domain.APIKey, error) {
 }
 
 func (a *UserAdapter) DeleteKey(keyID string, userID string) error {
-	log.Printf("[DELETE_KEY] keyID=%s userID=%s", keyID, userID)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	logger.Info("[DELETE_KEY] keyID=%s userID=%s", keyID, userID)
 
 	objID, err := primitive.ObjectIDFromHex(keyID)
 	if err != nil {
-		log.Printf("[DELETE_KEY] Invalid ObjectID format: %v", err)
+		logger.Warn("[DELETE_KEY] Invalid ObjectID format: %v", err)
 		return errors.New("invalid key ID format")
 	}
 
-	result, err := a.keyColl.DeleteOne(a.ctx, bson.M{"_id": objID, "created_by": userID})
+	result, err := a.keyColl.DeleteOne(ctx, bson.M{"_id": objID, "created_by": userID})
 	if err != nil {
-		log.Printf("[DELETE_KEY] ERROR: %v", err)
+		logger.Error("[DELETE_KEY] ERROR: %v", err)
 		return err
 	}
-	log.Printf("[DELETE_KEY] Deleted count: %d", result.DeletedCount)
+	logger.Info("[DELETE_KEY] Deleted count: %d", result.DeletedCount)
 
 	if result.DeletedCount == 0 {
 		return errors.New("key not found")
@@ -228,15 +228,15 @@ func (a *UserAdapter) DeleteKey(keyID string, userID string) error {
 
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
-		log.Printf("[DELETE_KEY] Invalid user ObjectID: %v", err)
+		logger.Warn("[DELETE_KEY] Invalid user ObjectID: %v", err)
 	} else {
-		updateResult, err := a.userColl.UpdateOne(a.ctx, bson.M{"_id": userObjID}, bson.M{
+		updateResult, err := a.userColl.UpdateOne(ctx, bson.M{"_id": userObjID}, bson.M{
 			"$inc": bson.M{"keys_used": -1},
 		})
 		if err != nil {
-			log.Printf("[DELETE_KEY] ERROR updating keys_used: %v", err)
+			logger.Error("[DELETE_KEY] ERROR updating keys_used: %v", err)
 		} else {
-			log.Printf("[DELETE_KEY] keys_used update result: matched=%d modified=%d", updateResult.MatchedCount, updateResult.ModifiedCount)
+			logger.Info("[DELETE_KEY] keys_used update result: matched=%d modified=%d", updateResult.MatchedCount, updateResult.ModifiedCount)
 		}
 	}
 
@@ -244,7 +244,10 @@ func (a *UserAdapter) DeleteKey(keyID string, userID string) error {
 }
 
 func (a *UserAdapter) DeleteKeysBatch(keyIDs []string, userID string) (int, error) {
-	log.Printf("[DELETE_KEYS_BATCH] count=%d userID=%s", len(keyIDs), userID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	logger.Info("[DELETE_KEYS_BATCH] count=%d userID=%s", len(keyIDs), userID)
 
 	if len(keyIDs) == 0 {
 		return 0, errors.New("no key IDs provided")
@@ -254,7 +257,7 @@ func (a *UserAdapter) DeleteKeysBatch(keyIDs []string, userID string) (int, erro
 	for _, keyID := range keyIDs {
 		objID, err := primitive.ObjectIDFromHex(keyID)
 		if err != nil {
-			log.Printf("[DELETE_KEYS_BATCH] Invalid ObjectID %s: %v", keyID, err)
+			logger.Warn("[DELETE_KEYS_BATCH] Invalid ObjectID %s: %v", keyID, err)
 			continue
 		}
 		objIDs = append(objIDs, objID)
@@ -264,31 +267,31 @@ func (a *UserAdapter) DeleteKeysBatch(keyIDs []string, userID string) (int, erro
 		return 0, errors.New("no valid key IDs")
 	}
 
-	result, err := a.keyColl.DeleteMany(a.ctx, bson.M{
+	result, err := a.keyColl.DeleteMany(ctx, bson.M{
 		"_id":        bson.M{"$in": objIDs},
 		"created_by": userID,
 	})
 	if err != nil {
-		log.Printf("[DELETE_KEYS_BATCH] ERROR: %v", err)
+		logger.Error("[DELETE_KEYS_BATCH] ERROR: %v", err)
 		return 0, err
 	}
 
 	deletedCount := int(result.DeletedCount)
-	log.Printf("[DELETE_KEYS_BATCH] Deleted count: %d", deletedCount)
+	logger.Info("[DELETE_KEYS_BATCH] Deleted count: %d", deletedCount)
 
 	if deletedCount > 0 {
-		log.Printf("[DELETE_KEYS_BATCH] Updating user %s keys_used counter", userID)
+		logger.Info("[DELETE_KEYS_BATCH] Updating user %s keys_used counter", userID)
 		userObjID, err := primitive.ObjectIDFromHex(userID)
 		if err != nil {
-			log.Printf("[DELETE_KEYS_BATCH] Invalid user ObjectID: %v", err)
+			logger.Warn("[DELETE_KEYS_BATCH] Invalid user ObjectID: %v", err)
 		} else {
-			updateResult, err := a.userColl.UpdateOne(a.ctx, bson.M{"_id": userObjID}, bson.M{
+			updateResult, err := a.userColl.UpdateOne(ctx, bson.M{"_id": userObjID}, bson.M{
 				"$inc": bson.M{"keys_used": -deletedCount},
 			})
 			if err != nil {
-				log.Printf("[DELETE_KEYS_BATCH] ERROR updating keys_used: %v", err)
+				logger.Error("[DELETE_KEYS_BATCH] ERROR updating keys_used: %v", err)
 			} else {
-				log.Printf("[DELETE_KEYS_BATCH] keys_used update result: matched=%d modified=%d", updateResult.MatchedCount, updateResult.ModifiedCount)
+				logger.Info("[DELETE_KEYS_BATCH] keys_used update result: matched=%d modified=%d", updateResult.MatchedCount, updateResult.ModifiedCount)
 			}
 		}
 	}
@@ -297,6 +300,9 @@ func (a *UserAdapter) DeleteKeysBatch(keyIDs []string, userID string) (int, erro
 }
 
 func (a *UserAdapter) GetUserKeys(userID string, page, limit int) ([]*domain.APIKey, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	if page < 1 {
 		page = 1
 	}
@@ -306,7 +312,7 @@ func (a *UserAdapter) GetUserKeys(userID string, page, limit int) ([]*domain.API
 
 	skip := (page - 1) * limit
 
-	total, err := a.keyColl.CountDocuments(a.ctx, bson.M{"created_by": userID})
+	total, err := a.keyColl.CountDocuments(ctx, bson.M{"created_by": userID})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -316,14 +322,14 @@ func (a *UserAdapter) GetUserKeys(userID string, page, limit int) ([]*domain.API
 		SetSkip(int64(skip)).
 		SetSort(bson.D{{Key: "created_at", Value: -1}})
 
-	cursor, err := a.keyColl.Find(a.ctx, bson.M{"created_by": userID}, opts)
+	cursor, err := a.keyColl.Find(ctx, bson.M{"created_by": userID}, opts)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer cursor.Close(a.ctx)
+	defer cursor.Close(ctx)
 
 	var keys []*domain.APIKey
-	if err := cursor.All(a.ctx, &keys); err != nil {
+	if err := cursor.All(ctx, &keys); err != nil {
 		return nil, 0, err
 	}
 
@@ -331,7 +337,7 @@ func (a *UserAdapter) GetUserKeys(userID string, page, limit int) ([]*domain.API
 }
 
 func (a *UserAdapter) UpdateKeyUsage(key string) error {
-	ctx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	now := time.Now()
@@ -344,4 +350,16 @@ func (a *UserAdapter) UpdateKeyUsage(key string) error {
 		},
 	)
 	return err
+}
+
+func generateID() string {
+	b := make([]byte, 12)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func generateKey() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return "sk_" + hex.EncodeToString(b)
 }

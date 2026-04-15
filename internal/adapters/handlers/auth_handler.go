@@ -3,6 +3,7 @@ package handlers
 import (
 	"brd-shapify/internal/adapters/storage"
 	"brd-shapify/internal/core/domain"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -32,8 +33,19 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 
 	user, err := h.userAdapter.Register(req, ip)
 	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "duplicate key") || strings.Contains(errMsg, "unique") {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": "Email already registered",
+			})
+		}
+		if strings.Contains(errMsg, "context canceled") || strings.Contains(errMsg, "context deadline exceeded") {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"error": "Service temporarily unavailable, please try again",
+			})
+		}
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": errMsg,
 		})
 	}
 
@@ -59,8 +71,24 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 
 	token, user, err := h.userAdapter.Login(req)
 	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid credentials") {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Invalid email or password",
+			})
+		}
+		if strings.Contains(errMsg, "account disabled") {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "Account is disabled",
+			})
+		}
+		if strings.Contains(errMsg, "context") {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"error": "Service temporarily unavailable, please try again",
+			})
+		}
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": errMsg,
 		})
 	}
 

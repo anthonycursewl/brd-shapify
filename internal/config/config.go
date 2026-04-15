@@ -6,23 +6,36 @@ import (
 )
 
 type Config struct {
-	MongoURI  string
-	MongoDB   string
-	RedisHost string
-	RedisPort string
-	JWTSecret string
-	Port      string
+	MongoURI      string
+	MongoDB       string
+	RedisHost     string
+	RedisPort     string
+	RedisPassword string
+	RedisDB       int
+	JWTSecret     string
+	Port          string
 }
 
 func Load() *Config {
 	return &Config{
-		MongoURI:  getEnv("MONGO_URI", ""),
-		MongoDB:   getEnv("MONGO_DB", "shapify"),
-		RedisHost: getEnv("REDIS_HOST", ""),
-		RedisPort: getEnv("REDIS_PORT", "6379"),
-		JWTSecret: getEnv("JWT_SECRET", "brd-shapify-secret-key-2024!"),
-		Port:      getEnv("PORT", "8080"),
+		MongoURI:      getEnv("MONGO_URI", ""),
+		MongoDB:       getEnv("MONGO_DB", "shapify"),
+		RedisHost:     getEnv("REDIS_HOST", ""),
+		RedisPort:     getEnv("REDIS_PORT", "6379"),
+		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+		RedisDB:       getEnvInt("REDIS_DB", 0),
+		JWTSecret:     getEnv("JWT_SECRET", "brd-shapify-secret-key-2024!"),
+		Port:          getEnv("PORT", "8080"),
 	}
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		var intVal int
+		fmt.Sscanf(value, "%d", &intVal)
+		return intVal
+	}
+	return defaultValue
 }
 
 func getEnv(key, defaultValue string) string {

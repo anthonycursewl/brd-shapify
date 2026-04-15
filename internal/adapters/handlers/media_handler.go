@@ -3,6 +3,7 @@ package handlers
 import (
 	"brd-shapify/internal/core/middleware"
 	"brd-shapify/internal/core/services"
+	"brd-shapify/internal/logger"
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
@@ -12,7 +13,6 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
-	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -54,25 +54,25 @@ type ImageResponse struct {
 }
 
 func (h *MediaHandler) Resize(c *fiber.Ctx) error {
-	log.Printf("[RESIZE] Starting request")
+	logger.Info("[RESIZE] Starting request")
 	contentType := c.Get("Content-Type")
 
 	body := c.Body()
-	log.Printf("[RESIZE] Body length: %d, Content-Type: %s", len(body), contentType)
+	logger.Info("[RESIZE] Body length: %d, Content-Type: %s", len(body), contentType)
 
 	if strings.Contains(contentType, "application/json") {
-		log.Printf("[RESIZE] Processing JSON request")
+		logger.Info("[RESIZE] Processing JSON request")
 		var req ImageRequest
 		if err := json.Unmarshal(body, &req); err != nil {
-			log.Printf("[RESIZE] JSON parse error: %v", err)
+			logger.Info("[RESIZE] JSON parse error: %v", err)
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
 		}
 
-		log.Printf("[RESIZE] Request: width=%d, height=%d, format=%s, hasImage=%v",
+		logger.Info("[RESIZE] Request: width=%d, height=%d, format=%s, hasImage=%v",
 			req.Width, req.Height, req.Format, req.Image != "")
 
 		if req.Image == "" {
-			log.Printf("[RESIZE] No image provided")
+			logger.Info("[RESIZE] No image provided")
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image is required"})
 		}
 
