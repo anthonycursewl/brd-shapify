@@ -1,11 +1,26 @@
 package ports
 
-import "image"
+import (
+	"brd-shapify/internal/core/domain"
+	"image"
+)
 
 type ImageProcessor interface {
+	Process(img image.Image, opts domain.ProcessOptions) ([]byte, error)
 	Resize(img image.Image, width, height int) (image.Image, error)
 	Compress(img image.Image, quality int) ([]byte, error)
 	Convert(img image.Image, format string) ([]byte, error)
+	Watermark(img image.Image, cfg domain.WatermarkConfig) (image.Image, error)
+	AutoRotate(img image.Image, orientation int) image.Image
+}
+
+type ExifReader interface {
+	GetOrientation(data []byte) (int, error)
+	GetMetadata(data []byte) (*domain.ExifData, error)
+}
+
+type PreviewGenerator interface {
+	GenerateBlurHash(img image.Image) (string, error)
 }
 
 type StorageRepository interface {

@@ -1,3 +1,4 @@
+// Package middleware provides middleware for the Fiber framework.
 package middleware
 
 import (
@@ -177,6 +178,21 @@ func ValidateMIME(contentType string) bool {
 	}
 	ct := strings.TrimSpace(strings.ToLower(contentType))
 	return allowed[ct]
+}
+
+func ValidateImageSize(maxBytes int) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if c.Response().StatusCode() != 0 {
+			return c.Next()
+		}
+		contentLength := int64(c.Response().Header.ContentLength())
+		if contentLength > int64(maxBytes) && contentLength != -1 {
+			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
+				"error": "Image too large",
+			})
+		}
+		return c.Next()
+	}
 }
 
 func GetMIME(filename string) string {

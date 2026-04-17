@@ -33,12 +33,22 @@ func NewMediaHandler(s *services.MediaService, ua *storage.UserAdapter) *MediaHa
 }
 
 type ImageRequest struct {
-	Image    string `json:"image"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
-	Format   string `json:"format,omitempty"`
-	Quality  int    `json:"quality,omitempty"`
-	Compress bool   `json:"compress,omitempty"`
+	Image     string  `json:"image"`
+	Width     int     `json:"width"`
+	Height    int     `json:"height"`
+	Format    string  `json:"format,omitempty"`
+	Quality   int     `json:"quality,omitempty"`
+	Compress  bool    `json:"compress,omitempty"`
+	Fit       string  `json:"fit,omitempty"`
+	Watermark  *WatermarkRequest `json:"watermark,omitempty"`
+}
+
+type WatermarkRequest struct {
+	Enabled bool    `json:"enabled"`
+	Preset  string  `json:"preset,omitempty"`
+	OffsetX int     `json:"offset_x,omitempty"`
+	OffsetY int     `json:"offset_y,omitempty"`
+	Opacity float32 `json:"opacity,omitempty"`
 }
 
 type ResizeResponse struct {
@@ -52,7 +62,7 @@ type ResizeResponse struct {
 type ImageResponse struct {
 	Success        bool   `json:"success"`
 	ID             string `json:"id"`
-	Image          string `json:"image"` // base64
+	Image          string `json:"image"`
 	OriginalSize   int    `json:"original_size"`
 	CompressedSize int    `json:"new_compressed_size"`
 }
@@ -329,6 +339,116 @@ func (h *MediaHandler) GetImage(c *fiber.Ctx) error {
 	return c.Send(data)
 }
 
+func (h *MediaHandler) Compact(c *fiber.Ctx) error {
+	logger.Info("[COMPACT] Starting request")
+	contentType := c.Get("Content-Type")
+	body := c.Body()
+
+	if strings.Contains(contentType, "application/json") {
+		var req ImageRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
+		}
+
+		if req.Image == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image is required"})
+		}
+
+		imgBytes, err := base64.StdEncoding.DecodeString(req.Image)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid base64 image"})
+		}
+
+		originalSize := len(imgBytes)
+
+		opts := domain.ProcessOptions{
+			Width:   req.Width,
+			Height:  req.Height,
+			Format:  req.Format,
+			Quality: req.Quality,
+			Fit:     req.Fit,
+		}
+
+		if req.Watermark != nil {
+			opts.Watermark = &domain.WatermarkConfig{
+				Enabled:  req.Watermark.Enabled,
+				Preset:   req.Watermark.Preset,
+				OffsetX:  req.Watermark.OffsetX,
+				OffsetY:  req.Watermark.OffsetY,
+				Opacity:  req.Watermark.Opacity,
+			}
+		}
+
+		fileData, err := h.service.ProcessWithAutoRotate(imgBytes, opts)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		compressedSize := len(fileData)
+		var changePercent float64
+		if originalSize > 0 {
+			changePercent = float64(compressedSize-originalSize) / float64(originalSize) * 100
+		}
+
+		id := generateID(req.Format)
+		if err := h.service.Save(id, fileData); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		return c.JSON(ResizeResponse{
+			Success:        true,
+			ID:             id,
+			OriginalSize:   originalSize,
+			CompressedSize: compressedSize,
+			ChangePercent:  changePercent,
+		})
+	}
+
+	if !middleware.ValidateMIME(contentType) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Content-Type"})
+	}
+
+	originalSize := len(body)
+
+	quality := c.QueryInt("quality", 85)
+	width := c.QueryInt("width", 0)
+	height := c.QueryInt("height", 0)
+	format := c.Query("format", "jpeg")
+	fit := c.Query("fit", "")
+
+	opts := domain.ProcessOptions{
+		Width:   width,
+		Height:  height,
+		Format:  format,
+		Quality: quality,
+		Fit:     fit,
+	}
+
+	fileData, err := h.service.ProcessWithAutoRotate(body, opts)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	compressedSize := len(fileData)
+	var changePercent float64
+	if originalSize > 0 {
+		changePercent = float64(compressedSize-originalSize) / float64(originalSize) * 100
+	}
+
+	id := generateID(format)
+	if err := h.service.Save(id, fileData); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"success":             true,
+		"id":                  id,
+		"original_size":       originalSize,
+		"new_compressed_size": compressedSize,
+		"change_percent":      changePercent,
+	})
+}
+
 func generateID(format string) string {
 	b := make([]byte, 8)
 	rand.Read(b)
@@ -342,4 +462,111 @@ func generateID(format string) string {
 	default:
 		return fmt.Sprintf("%d_%s.jpg", timestamp, id)
 	}
+}
+
+func (h *MediaHandler) BlurHash(c *fiber.Ctx) error {
+	contentType := c.Get("Content-Type")
+	body := c.Body()
+
+	var img image.Image
+	var err error
+
+	if strings.Contains(contentType, "application/json") {
+		var req ImageRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
+		}
+		if req.Image == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image is required"})
+		}
+		imgBytes, err := base64.StdEncoding.DecodeString(req.Image)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid base64 image"})
+		}
+		img, _, err = image.Decode(bytes.NewReader(imgBytes))
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to decode image"})
+		}
+	} else {
+		if !middleware.ValidateMIME(contentType) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Content-Type"})
+		}
+		img, _, err = image.Decode(bytes.NewReader(body))
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to decode image"})
+		}
+	}
+
+	hash, err := h.service.GenerateBlurHash(img)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"blurhash": hash})
+}
+
+type BatchRequestJSON struct {
+	Image     string              `json:"image"`
+	Sizes     []BatchSizeJSON     `json:"sizes"`
+	Format    string              `json:"format,omitempty"`
+	Quality   int                 `json:"quality,omitempty"`
+	Watermark *WatermarkRequest   `json:"watermark,omitempty"`
+}
+
+type BatchSizeJSON struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+func (h *MediaHandler) Batch(c *fiber.Ctx) error {
+	var req BatchRequestJSON
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
+	}
+
+	if req.Image == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image is required"})
+	}
+
+	imgBytes, err := base64.StdEncoding.DecodeString(req.Image)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid base64 image"})
+	}
+
+	if len(req.Sizes) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "sizes array is required"})
+	}
+
+	sizes := make([]services.BatchSize, len(req.Sizes))
+	for i, s := range req.Sizes {
+		sizes[i] = services.BatchSize{Width: s.Width, Height: s.Height}
+	}
+
+	var wm *domain.WatermarkConfig
+	if req.Watermark != nil {
+		wm = &domain.WatermarkConfig{
+			Enabled:  req.Watermark.Enabled,
+			Preset:   req.Watermark.Preset,
+			OffsetX:  req.Watermark.OffsetX,
+			OffsetY:  req.Watermark.OffsetY,
+			Opacity:  req.Watermark.Opacity,
+		}
+	}
+
+	batchReq := services.BatchRequest{
+		Sizes:     sizes,
+		Format:    req.Format,
+		Quality:   req.Quality,
+		Watermark: wm,
+	}
+
+	results, err := h.service.ProcessBatch(imgBytes, batchReq)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"results": results,
+	})
 }
