@@ -22,7 +22,12 @@ func main() {
 		log.Fatal("MONGO_URI required")
 	}
 
-	userAdapter, err := storage.NewUserAdapter(mongoURI, mongoDB, 5, 30)
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET required")
+	}
+
+	userAdapter, err := storage.NewUserAdapter(mongoURI, mongoDB, 5, 30, jwtSecret)
 	if err != nil {
 		log.Fatalf("MongoDB error: %v", err)
 	}
