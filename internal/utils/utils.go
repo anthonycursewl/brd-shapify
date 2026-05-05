@@ -68,6 +68,10 @@ func StringInSlice(s string, slice []string) bool {
 }
 
 func GenerateToken(userID, email, role string) (string, *domain.User, error) {
+	return GenerateTokenWithSecret(userID, email, role, jwtSecret)
+}
+
+func GenerateTokenWithSecret(userID, email, role string, secret []byte) (string, *domain.User, error) {
 	claims := jwt.MapClaims{
 		"user_id": userID,
 		"email":   email,
@@ -76,7 +80,7 @@ func GenerateToken(userID, email, role string) (string, *domain.User, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(jwtSecret)
+	tokenString, err := token.SignedString(secret)
 	if err != nil {
 		return "", nil, err
 	}

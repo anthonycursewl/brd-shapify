@@ -14,6 +14,62 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+func ValidateMagicBytes(data []byte) bool {
+	if len(data) < 4 {
+		return false
+	}
+
+	// JPEG: FF D8 FF
+	if data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return true
+	}
+
+	// PNG: 89 50 4E 47 0D 0A 1A 0A
+	if len(data) >= 8 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
+		return true
+	}
+
+	// GIF: 47 49 46 38 (GIF8)
+	if len(data) >= 4 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38 {
+		return true
+	}
+
+	// WebP: RIFF .... WEBP
+	if len(data) >= 12 && data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 {
+		if len(data) >= 12 && string(data[8:12]) == "WEBP" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func DetectImageType(data []byte) string {
+	if len(data) < 4 {
+		return ""
+	}
+
+	if data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return "jpeg"
+	}
+
+	if len(data) >= 8 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
+		return "png"
+	}
+
+	if len(data) >= 4 && data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38 {
+		return "gif"
+	}
+
+	if len(data) >= 12 && data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 {
+		if string(data[8:12]) == "WEBP" {
+			return "webp"
+		}
+	}
+
+	return ""
+}
+
 type KeyAuthMiddleware struct {
 	userAdapter *storage.UserAdapter
 	cache       *redis.Client
@@ -33,13 +89,16 @@ func NewKeyAuth(userAdapter *storage.UserAdapter, fallback []string, cache *redi
 	}
 }
 
+func (k *KeyAuthMiddleware) InvalidateKey(key string) {
+	if k.cache != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		k.cache.Del(ctx, "key:"+key)
+	}
+}
+
 func (k *KeyAuthMiddleware) Handler(c *fiber.Ctx) error {
 	key := c.Get("X-API-Key")
-	if key == "" {
-		key = c.Query("api_key")
-	}
-
-	logger.Info("[KEY_AUTH] Received key: %s", key)
 
 	if key == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -47,22 +106,23 @@ func (k *KeyAuthMiddleware) Handler(c *fiber.Ctx) error {
 		})
 	}
 
+	keyHint := "***" + key[len(key)-4:]
+
 	if k.cache != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		cached, err := k.cache.Get(ctx, "key:"+key).Result()
 		if err == nil && cached == "valid" {
-			logger.Info("[KEY_AUTH] Key found in cache: %s", key)
+			logger.Info("[KEY_AUTH] Key found in cache: %s", keyHint)
 			return c.Next()
 		}
 	}
 
 	if k.userAdapter != nil {
-		logger.Info("[KEY_AUTH] Checking MongoDB for key: %s", key)
+		logger.Info("[KEY_AUTH] Checking MongoDB for key: %s", keyHint)
 		apiKey, err := k.userAdapter.GetAPIKey(key)
-		logger.Info("[KEY_AUTH] MongoDB result: key=%+v, error=%v", apiKey, err)
 		if err == nil && apiKey.Active && !apiKey.IsExpired() {
-			logger.Info("[KEY_AUTH] Key is valid: %s", key)
+			logger.Info("[KEY_AUTH] Key is valid: %s", keyHint)
 			k.userAdapter.UpdateKeyUsage(key)
 			if k.cache != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -87,7 +147,7 @@ func (k *KeyAuthMiddleware) Handler(c *fiber.Ctx) error {
 		})
 	}
 
-	logger.Info("[KEY_AUTH] Key is valid: %s", key)
+	logger.Info("[KEY_AUTH] Key is valid: %s", keyHint)
 	c.Locals("api_key", key)
 	return c.Next()
 }
@@ -133,15 +193,12 @@ func (r *RateLimiterMiddleware) cleanup() {
 }
 
 func (r *RateLimiterMiddleware) Handler(c *fiber.Ctx) error {
-	logger.Info("[RATE_LIMITER] Starting check")
 	ip := c.IP()
 	if xff := c.Get("X-Forwarded-For"); xff != "" {
 		ip = strings.Split(xff, ",")[0]
 	}
-	logger.Info("[RATE_LIMITER] IP: %s", ip)
 
 	r.mu.Lock()
-	logger.Info("[RATE_LIMITER] Lock acquired")
 	now := time.Now()
 	windowStart := now.Add(-r.window)
 
@@ -152,19 +209,17 @@ func (r *RateLimiterMiddleware) Handler(c *fiber.Ctx) error {
 			validRequests = append(validRequests, t)
 		}
 	}
-	logger.Info("[RATE_LIMITER] Valid requests: %d/%d", len(validRequests), r.limit)
 
 	if len(validRequests) >= r.limit {
 		r.mu.Unlock()
-		logger.Info("[RATE_LIMITER] Rate limit exceeded")
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": "Rate limit exceeded",
 		})
 	}
 
-	r.requests[ip] = append(validRequests, now)
+	validRequests = append(validRequests, now)
+	r.requests[ip] = validRequests
 	r.mu.Unlock()
-	logger.Info("[RATE_LIMITER] Passed")
 
 	return c.Next()
 }
