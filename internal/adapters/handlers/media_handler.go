@@ -33,14 +33,20 @@ func NewMediaHandler(s *services.MediaService, ua *storage.UserAdapter) *MediaHa
 }
 
 type ImageRequest struct {
-	Image     string  `json:"image"`
-	Width     int     `json:"width"`
-	Height    int     `json:"height"`
-	Format    string  `json:"format,omitempty"`
-	Quality   int     `json:"quality,omitempty"`
-	Compress  bool    `json:"compress,omitempty"`
-	Fit       string  `json:"fit,omitempty"`
+	Image      string            `json:"image"`
+	Width      int               `json:"width"`
+	Height     int               `json:"height"`
+	Format     string            `json:"format,omitempty"`
+	Quality    int               `json:"quality,omitempty"`
+	Compress   bool              `json:"compress,omitempty"`
+	Fit        string            `json:"fit,omitempty"`
 	Watermark  *WatermarkRequest `json:"watermark,omitempty"`
+	Brightness float64           `json:"brightness,omitempty"`
+	Contrast   float64           `json:"contrast,omitempty"`
+	Saturation float64           `json:"saturation,omitempty"`
+	Grayscale  bool              `json:"grayscale,omitempty"`
+	Blur       float64           `json:"blur,omitempty"`
+	Sharpen    float64           `json:"sharpen,omitempty"`
 }
 
 type WatermarkRequest struct {
@@ -382,11 +388,17 @@ func (h *MediaHandler) Compact(c *fiber.Ctx) error {
 		originalSize := len(imgBytes)
 
 		opts := domain.ProcessOptions{
-			Width:   req.Width,
-			Height:  req.Height,
-			Format:  req.Format,
-			Quality: req.Quality,
-			Fit:     req.Fit,
+			Width:      req.Width,
+			Height:     req.Height,
+			Format:     req.Format,
+			Quality:    req.Quality,
+			Fit:        req.Fit,
+			Brightness: req.Brightness,
+			Contrast:   req.Contrast,
+			Saturation: req.Saturation,
+			Grayscale:  req.Grayscale,
+			Blur:       req.Blur,
+			Sharpen:    req.Sharpen,
 		}
 
 		if req.Watermark != nil {
@@ -530,6 +542,64 @@ func (h *MediaHandler) BlurHash(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"blurhash": hash})
+}
+
+type PaletteRequest struct {
+	Image     string `json:"image"`
+	NumColors int    `json:"num_colors,omitempty"`
+}
+
+func (h *MediaHandler) Palette(c *fiber.Ctx) error {
+	contentType := c.Get("Content-Type")
+	body := c.Body()
+
+	var imgBytes []byte
+	var err error
+
+	if strings.Contains(contentType, "application/json") {
+		var req PaletteRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
+		}
+
+		if req.Image == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image is required"})
+		}
+
+		imgBytes, err = base64.StdEncoding.DecodeString(req.Image)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid base64 image"})
+		}
+	} else {
+		imgBytes = body
+	}
+
+	if !middleware.ValidateMagicBytes(imgBytes) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid image format"})
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(imgBytes))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to decode image"})
+	}
+
+	numColors := 5
+	if strings.Contains(contentType, "application/json") {
+		var req PaletteRequest
+		if err := json.Unmarshal(body, &req); err == nil && req.NumColors > 0 {
+			numColors = req.NumColors
+		}
+	}
+
+	colors, err := h.service.ExtractPalette(img, numColors)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"colors":  colors,
+	})
 }
 
 type BatchRequestJSON struct {

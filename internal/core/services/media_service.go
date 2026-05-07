@@ -1,6 +1,7 @@
 package services
 
 import (
+	"brd-shapify/internal/adapters/imaging"
 	"brd-shapify/internal/core/domain"
 	"brd-shapify/internal/core/ports"
 	"bytes"
@@ -119,6 +120,10 @@ func (s *MediaService) GenerateBlurHash(img image.Image) (string, error) {
 		return "", fmt.Errorf("preview generator not configured")
 	}
 	return s.previewGen.GenerateBlurHash(img)
+}
+
+func (s *MediaService) ExtractPalette(img image.Image, numColors int) ([]imaging.Color, error) {
+	return s.processor.ExtractPalette(img, numColors)
 }
 
 type BatchRequest struct {

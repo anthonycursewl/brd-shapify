@@ -8,6 +8,8 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"strconv"
+	"strings"
 
 	"brd-shapify/internal/core/domain"
 
@@ -47,6 +49,30 @@ func loadFile(_ string) ([]byte, error) {
 
 func (a *ImageProcessorAdapter) Process(img image.Image, opts domain.ProcessOptions) ([]byte, error) {
 	processed := img
+
+	if opts.Blur > 0 {
+		processed = a.Blur(processed, opts.Blur)
+	}
+
+	if opts.Sharpen > 0 {
+		processed = a.Sharpen(processed, opts.Sharpen)
+	}
+
+	if opts.Brightness != 0 {
+		processed = a.AdjustBrightness(processed, opts.Brightness)
+	}
+
+	if opts.Contrast != 0 {
+		processed = a.AdjustContrast(processed, opts.Contrast)
+	}
+
+	if opts.Saturation != 0 {
+		processed = a.AdjustSaturation(processed, opts.Saturation)
+	}
+
+	if opts.Grayscale {
+		processed = a.Grayscale(processed)
+	}
 
 	if opts.Width > 0 || opts.Height > 0 {
 		var err error
@@ -220,4 +246,106 @@ func (a *ImageProcessorAdapter) EncodeWebP(img image.Image, quality int) ([]byte
 		return nil, fmt.Errorf("webp encoding failed: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+func (a *ImageProcessorAdapter) Grayscale(img image.Image) image.Image {
+	return imaging.Grayscale(img)
+}
+
+func (a *ImageProcessorAdapter) Blur(img image.Image, sigma float64) image.Image {
+	return imaging.Blur(img, sigma)
+}
+
+func (a *ImageProcessorAdapter) Sharpen(img image.Image, sigma float64) image.Image {
+	return imaging.Sharpen(img, sigma)
+}
+
+func (a *ImageProcessorAdapter) AdjustBrightness(img image.Image, brightness float64) image.Image {
+	return imaging.AdjustBrightness(img, brightness)
+}
+
+func (a *ImageProcessorAdapter) AdjustContrast(img image.Image, contrast float64) image.Image {
+	return imaging.AdjustContrast(img, contrast)
+}
+
+func (a *ImageProcessorAdapter) AdjustSaturation(img image.Image, saturation float64) image.Image {
+	return imaging.AdjustSaturation(img, saturation)
+}
+
+type Color struct {
+	Hex  string `json:"hex"`
+	R    uint8   `json:"r"`
+	G    uint8   `json:"g"`
+	B    uint8   `json:"b"`
+	Count int    `json:"count"`
+}
+
+func (a *ImageProcessorAdapter) ExtractPalette(img image.Image, numColors int) ([]Color, error) {
+	if numColors < 1 {
+		numColors = 5
+	}
+	if numColors > 20 {
+		numColors = 20
+	}
+
+	bounds := img.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+
+	colorCounts := make(map[string]int)
+	var r, g, b uint8
+
+	for y := 0; y < height; y += 2 {
+		for x := 0; x < width; x += 2 {
+			cr, cg, cb, _ := img.At(x, y).RGBA()
+			r = uint8(cr >> 8)
+			g = uint8(cg >> 8)
+			b = uint8(cb >> 8)
+
+			quantR := (r / 32) * 32
+			quantG := (g / 32) * 32
+			quantB := (b / 32) * 32
+
+			key := fmt.Sprintf("%d,%d,%d", quantR, quantG, quantB)
+			colorCounts[key]++
+		}
+	}
+
+	type colorCount struct {
+		key   string
+		count int
+	}
+	var sorted []colorCount
+	for k, v := range colorCounts {
+		sorted = append(sorted, colorCount{k, v})
+	}
+
+	for i := 0; i < len(sorted)-1; i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j].count > sorted[i].count {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+
+	result := make([]Color, 0, numColors)
+	for i := 0; i < len(sorted) && i < numColors; i++ {
+		parts := strings.Split(sorted[i].key, ",")
+		if len(parts) != 3 {
+			continue
+		}
+		ri, _ := strconv.ParseUint(parts[0], 10, 8)
+		gi, _ := strconv.ParseUint(parts[1], 10, 8)
+		bi, _ := strconv.ParseUint(parts[2], 10, 8)
+
+		hex := fmt.Sprintf("#%02X%02X%02X", uint8(ri), uint8(gi), uint8(bi))
+		result = append(result, Color{
+			Hex:  hex,
+			R:    uint8(ri),
+			G:    uint8(gi),
+			B:    uint8(bi),
+			Count: sorted[i].count,
+		})
+	}
+
+	return result, nil
 }

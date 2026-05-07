@@ -3,12 +3,18 @@ package domain
 import "image"
 
 type ProcessOptions struct {
-	Width    int
-	Height   int
-	Format   string
-	Quality  int
-	Fit      string
-	Watermark *WatermarkConfig
+	Width      int
+	Height     int
+	Format     string
+	Quality    int
+	Fit        string
+	Watermark  *WatermarkConfig
+	Brightness float64
+	Contrast   float64
+	Saturation float64
+	Grayscale  bool
+	Blur       float64
+	Sharpen    float64
 }
 
 type WatermarkConfig struct {

@@ -1,6 +1,7 @@
 package ports
 
 import (
+	"brd-shapify/internal/adapters/imaging"
 	"brd-shapify/internal/core/domain"
 	"image"
 )
@@ -12,6 +13,7 @@ type ImageProcessor interface {
 	Convert(img image.Image, format string) ([]byte, error)
 	Watermark(img image.Image, cfg domain.WatermarkConfig) (image.Image, error)
 	AutoRotate(img image.Image, orientation int) image.Image
+	ExtractPalette(img image.Image, numColors int) ([]imaging.Color, error)
 }
 
 type ExifReader interface {
