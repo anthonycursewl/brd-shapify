@@ -13,6 +13,7 @@ import (
 	"brd-shapify/internal/logger"
 	"brd-shapify/internal/utils"
 
+	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -20,21 +21,39 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte("brd-shapify-secret-key-change-in-production")
-
 type UserAdapter struct {
 	userColl  *mongo.Collection
 	keyColl   *mongo.Collection
 	imageColl *mongo.Collection
 	maxKeys   int
 	client    *mongo.Client
+	jwtSecret []byte
+	cache     *redis.Client
 }
 
-func NewUserAdapter(mongoURI, dbName string, maxKeys int, timeout int) (*UserAdapter, error) {
+func NewUserAdapter(mongoURI, dbName string, maxKeys int, timeout int, jwtSecret string) (*UserAdapter, error) {
+	return NewUserAdapterWithPool(mongoURI, dbName, maxKeys, timeout, jwtSecret, 100, 10, 300)
+}
+
+func NewUserAdapterWithPool(mongoURI, dbName string, maxKeys int, timeout int, jwtSecret string, maxPoolSize, minPoolSize, maxConnIdleTime int) (*UserAdapter, error) {
+	return NewUserAdapterWithPoolAndCache(mongoURI, dbName, maxKeys, timeout, jwtSecret, maxPoolSize, minPoolSize, maxConnIdleTime, nil)
+}
+
+func NewUserAdapterWithPoolAndCache(mongoURI, dbName string, maxKeys int, timeout int, jwtSecret string, maxPoolSize, minPoolSize, maxConnIdleTime int, cache *redis.Client) (*UserAdapter, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
+	if jwtSecret == "" {
+		return nil, fmt.Errorf("JWT secret is required")
+	}
+
+	poolOpts := options.Client().
+		ApplyURI(mongoURI).
+		SetMaxPoolSize(uint64(maxPoolSize)).
+		SetMinPoolSize(uint64(minPoolSize)).
+		SetMaxConnIdleTime(time.Duration(maxConnIdleTime) * time.Second)
+
+	client, err := mongo.Connect(ctx, poolOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
@@ -68,7 +87,17 @@ func NewUserAdapter(mongoURI, dbName string, maxKeys int, timeout int) (*UserAda
 		imageColl: imageColl,
 		maxKeys:   maxKeys,
 		client:    client,
+		jwtSecret: []byte(jwtSecret),
+		cache:     cache,
 	}, nil
+}
+
+func (a *UserAdapter) InvalidateKeyCache(key string) {
+	if a.cache != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		a.cache.Del(ctx, "key:"+key)
+	}
 }
 
 func (a *UserAdapter) Register(req domain.RegisterRequest, ip string) (*domain.User, error) {
@@ -120,7 +149,7 @@ func (a *UserAdapter) Login(req domain.LoginRequest) (string, *domain.User, erro
 		return "", nil, errors.New("account disabled")
 	}
 
-	token, _, _ := utils.GenerateToken(user.ID, user.Email, user.Role)
+	token, _, _ := utils.GenerateTokenWithSecret(user.ID, user.Email, user.Role, a.jwtSecret)
 
 	a.userColl.UpdateOne(ctx, bson.M{"_id": user.ID}, bson.M{
 		"$set": bson.M{"last_login": time.Now()},
@@ -130,7 +159,7 @@ func (a *UserAdapter) Login(req domain.LoginRequest) (string, *domain.User, erro
 }
 
 func (a *UserAdapter) ValidateToken(tokenString string) (*domain.User, error) {
-	user, err := utils.ValidateToken(tokenString, jwtSecret)
+	user, err := utils.ValidateToken(tokenString, a.jwtSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -224,6 +253,15 @@ func (a *UserAdapter) DeleteKey(keyID string, userID string) error {
 		return errors.New("invalid key ID format")
 	}
 
+	var apiKey domain.APIKey
+	err = a.keyColl.FindOne(ctx, bson.M{"_id": objID, "created_by": userID}).Decode(&apiKey)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return errors.New("key not found")
+		}
+		return err
+	}
+
 	result, err := a.keyColl.DeleteOne(ctx, bson.M{"_id": objID, "created_by": userID})
 	if err != nil {
 		logger.Error("[DELETE_KEY] ERROR: %v", err)
@@ -234,6 +272,8 @@ func (a *UserAdapter) DeleteKey(keyID string, userID string) error {
 	if result.DeletedCount == 0 {
 		return errors.New("key not found")
 	}
+
+	a.InvalidateKeyCache(apiKey.Key)
 
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
@@ -419,4 +459,8 @@ func generateKey() string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return "sk_" + hex.EncodeToString(b)
+}
+
+func (a *UserAdapter) Close(ctx context.Context) error {
+	return a.client.Disconnect(ctx)
 }

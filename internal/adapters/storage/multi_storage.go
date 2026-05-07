@@ -36,7 +36,7 @@ func (a *MultiStorageAdapter) Save(id string, data []byte) error {
 		return a.saveToS3(id, data)
 	}
 	path := filepath.Join(a.localDir, id)
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func (a *MultiStorageAdapter) Load(id string) ([]byte, error) {

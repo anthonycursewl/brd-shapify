@@ -87,7 +87,7 @@ func Home(c *fiber.Ctx) error {
 				"Rate limiting & Size limiting protection",
 				"API Key authentication (MongoDB + Redis cache)",
 			},
-},
+		},
 		"developer_experience": fiber.Map{
 			"x_powered_by": "Caffeine, Go routines & Fiber",
 			"fun_facts": []string{

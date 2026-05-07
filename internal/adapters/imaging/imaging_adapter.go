@@ -41,19 +41,19 @@ func loadWatermark(path string) (image.Image, error) {
 	return img, err
 }
 
-func loadFile(path string) ([]byte, error) {
+func loadFile(_ string) ([]byte, error) {
 	return nil, fmt.Errorf("not implemented: use injected dependency")
 }
 
 func (a *ImageProcessorAdapter) Process(img image.Image, opts domain.ProcessOptions) ([]byte, error) {
-	var processed image.Image = img
+	processed := img
 
 	if opts.Width > 0 || opts.Height > 0 {
-		processed, err := a.processResize(processed, opts.Width, opts.Height, opts.Fit)
+		var err error
+		processed, err = a.processResize(processed, opts.Width, opts.Height, opts.Fit)
 		if err != nil {
 			return nil, fmt.Errorf("resize failed: %w", err)
 		}
-		processed = processed
 	}
 
 	if opts.Watermark != nil && opts.Watermark.Enabled && a.watermarkImg != nil {
@@ -128,11 +128,8 @@ func (a *ImageProcessorAdapter) Resize(img image.Image, width, height int) (imag
 }
 
 func (a *ImageProcessorAdapter) Compress(img image.Image, quality int) ([]byte, error) {
-	if quality <= 0 {
-		quality = 85
-	}
-	if quality > 100 {
-		quality = 100
+	if quality < 1 || quality > 100 {
+		return nil, fmt.Errorf("quality must be between 1 and 100, got %d", quality)
 	}
 	buf := new(bytes.Buffer)
 	err := jpeg.Encode(buf, img, &jpeg.Options{Quality: quality})

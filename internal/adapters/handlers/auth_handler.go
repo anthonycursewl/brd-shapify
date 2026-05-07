@@ -113,7 +113,7 @@ func (h *AuthHandler) CreateAPIKey(c *fiber.Ctx) error {
 	user, err := h.userAdapter.ValidateToken(token)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Invalid or expired token",
 		})
 	}
 
@@ -127,7 +127,7 @@ func (h *AuthHandler) CreateAPIKey(c *fiber.Ctx) error {
 	apiKey, err := h.userAdapter.CreateKeyForUser(user.ID, req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Failed to create API key",
 		})
 	}
 
@@ -146,7 +146,7 @@ func (h *AuthHandler) ListAPIKeys(c *fiber.Ctx) error {
 	user, err := h.userAdapter.ValidateToken(token)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Invalid or expired token",
 		})
 	}
 
@@ -156,7 +156,7 @@ func (h *AuthHandler) ListAPIKeys(c *fiber.Ctx) error {
 	keys, total, err := h.userAdapter.GetUserKeys(user.ID, page, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Failed to retrieve API keys",
 		})
 	}
 
@@ -184,7 +184,7 @@ func (h *AuthHandler) ListImages(c *fiber.Ctx) error {
 	user, err := h.userAdapter.ValidateToken(token)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Invalid or expired token",
 		})
 	}
 
@@ -194,7 +194,7 @@ func (h *AuthHandler) ListImages(c *fiber.Ctx) error {
 	images, total, err := h.userAdapter.GetUserImages(user.ID, page, limit)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Failed to retrieve images",
 		})
 	}
 
@@ -222,7 +222,7 @@ func (h *AuthHandler) DeleteAPIKey(c *fiber.Ctx) error {
 	user, err := h.userAdapter.ValidateToken(token)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Invalid or expired token",
 		})
 	}
 
@@ -236,7 +236,7 @@ func (h *AuthHandler) DeleteAPIKey(c *fiber.Ctx) error {
 	err = h.userAdapter.DeleteKey(keyID, user.ID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Key not found",
 		})
 	}
 
@@ -258,7 +258,7 @@ func (h *AuthHandler) DeleteAPIKeysBatch(c *fiber.Ctx) error {
 	user, err := h.userAdapter.ValidateToken(token)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Invalid or expired token",
 		})
 	}
 
@@ -280,7 +280,7 @@ func (h *AuthHandler) DeleteAPIKeysBatch(c *fiber.Ctx) error {
 	deleted, err := h.userAdapter.DeleteKeysBatch(req.KeyIDs, user.ID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Failed to delete keys",
 		})
 	}
 

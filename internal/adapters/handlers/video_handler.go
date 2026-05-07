@@ -52,12 +52,12 @@ func (h *VideoHandler) ExtractThumbnail(c *fiber.Ctx) error {
 
 	thumb, err := h.processor.ExtractThumbnail(videoData, req.Timestamp)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Video processing failed"})
 	}
 
 	id := fmt.Sprintf("%d_thumb.jpg", time.Now().UnixNano())
 	if err := h.service.Save(id, thumb); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Video processing failed"})
 	}
 
 	return c.JSON(VideoResponse{Success: true, ID: id})
@@ -77,12 +77,12 @@ func (h *VideoHandler) Convert(c *fiber.Ctx) error {
 
 	result, err := h.processor.ConvertVideo(videoData, format, req.Quality)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Video processing failed"})
 	}
 
 	id := fmt.Sprintf("%d_video.%s", time.Now().UnixNano(), format)
 	if err := h.service.Save(id, result); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Video processing failed"})
 	}
 
 	return c.JSON(VideoResponse{Success: true, ID: id})
@@ -102,12 +102,12 @@ func (h *VideoHandler) ExtractAudio(c *fiber.Ctx) error {
 
 	audio, err := h.processor.ExtractAudio(videoData, format)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Video processing failed"})
 	}
 
 	id := fmt.Sprintf("%d_audio.%s", time.Now().UnixNano(), format)
 	if err := h.service.Save(id, audio); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Video processing failed"})
 	}
 
 	return c.JSON(VideoResponse{Success: true, ID: id})
@@ -123,12 +123,12 @@ func (h *VideoHandler) Trim(c *fiber.Ctx) error {
 
 	result, err := h.processor.TrimVideo(videoData, req.Start, req.Duration)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Video processing failed"})
 	}
 
 	id := fmt.Sprintf("%d_trim.mp4", time.Now().UnixNano())
 	if err := h.service.Save(id, result); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Video processing failed"})
 	}
 
 	return c.JSON(VideoResponse{Success: true, ID: id})

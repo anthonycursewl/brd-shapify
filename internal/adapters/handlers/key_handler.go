@@ -33,7 +33,7 @@ func (h *KeyHandler) Create(c *fiber.Ctx) error {
 	apiKey, err := h.mongo.CreateKey(req)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Failed to create API key",
 		})
 	}
 
@@ -48,7 +48,7 @@ func (h *KeyHandler) List(c *fiber.Ctx) error {
 	keys, err := h.mongo.ListKeys()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Failed to list API keys",
 		})
 	}
 
@@ -74,7 +74,7 @@ func (h *KeyHandler) Revoke(c *fiber.Ctx) error {
 	err := h.mongo.RevokeKey(id)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Key not found",
 		})
 	}
 
@@ -95,7 +95,7 @@ func (h *KeyHandler) Delete(c *fiber.Ctx) error {
 	err := h.mongo.DeleteKey(id)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Key not found",
 		})
 	}
 
@@ -116,7 +116,7 @@ func (h *KeyHandler) Get(c *fiber.Ctx) error {
 	key, err := h.mongo.GetKeyByID(id)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "Key not found",
 		})
 	}
 

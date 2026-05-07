@@ -97,6 +97,10 @@ func (h *MediaHandler) Resize(c *fiber.Ctx) error {
 
 		originalSize := len(imgBytes)
 
+		if !middleware.ValidateMagicBytes(imgBytes) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid image format"})
+		}
+
 		img, _, err := image.Decode(bytes.NewReader(imgBytes))
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to decode image"})
@@ -117,23 +121,29 @@ func (h *MediaHandler) Resize(c *fiber.Ctx) error {
 			}
 			processed = img
 			if req.Width > 0 && req.Height > 0 {
+				if req.Width > 10000 || req.Height > 10000 {
+					return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "dimensions exceed maximum of 10000x10000"})
+				}
 				processed, err = h.service.Resize(img, req.Width, req.Height)
 				if err != nil {
-					return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+					return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 				}
 			}
 			fileData, err = h.service.Compress(processed, quality)
 			if err != nil {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 			}
 		} else if req.Width > 0 && req.Height > 0 {
+			if req.Width > 10000 || req.Height > 10000 {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "dimensions exceed maximum of 10000x10000"})
+			}
 			processed, err = h.service.Resize(img, req.Width, req.Height)
 			if err != nil {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 			}
 			fileData, err = h.service.ConvertToFormat(processed, req.Format)
 			if err != nil {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 			}
 		} else {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "width/height or compress/quality required"})
@@ -147,7 +157,7 @@ func (h *MediaHandler) Resize(c *fiber.Ctx) error {
 
 		id := generateID(req.Format)
 		if err := h.service.Save(id, fileData); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 		}
 
 		if userID, ok := c.Locals("user_id").(string); ok && userID != "" && h.userAdapter != nil {
@@ -199,25 +209,31 @@ func (h *MediaHandler) Resize(c *fiber.Ctx) error {
 	if quality > 0 {
 		var processed image.Image
 		if width > 0 && height > 0 {
+			if width > 10000 || height > 10000 {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "dimensions exceed maximum of 10000x10000"})
+			}
 			processed, err = h.service.Resize(img, width, height)
 			if err != nil {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 			}
 		} else {
 			processed = img
 		}
 		fileData, err = h.service.Compress(processed, quality)
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 		}
 	} else {
+		if width > 10000 || height > 10000 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "dimensions exceed maximum of 10000x10000"})
+		}
 		processed, err := h.service.Resize(img, width, height)
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 		}
 		fileData, err = h.service.ConvertToFormat(processed, format)
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 		}
 	}
 
@@ -229,7 +245,7 @@ func (h *MediaHandler) Resize(c *fiber.Ctx) error {
 
 	id := generateID(format)
 	if err := h.service.Save(id, fileData); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 	}
 
 	if userID, ok := c.Locals("user_id").(string); ok && userID != "" && h.userAdapter != nil {
@@ -274,6 +290,10 @@ func (h *MediaHandler) Convert(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid base64 image"})
 		}
 
+		if !middleware.ValidateMagicBytes(imgBytes) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid image format"})
+		}
+
 		img, _, err := image.Decode(bytes.NewReader(imgBytes))
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to decode image"})
@@ -288,12 +308,12 @@ func (h *MediaHandler) Convert(c *fiber.Ctx) error {
 
 		processed, err := h.service.ConvertToFormat(img, format)
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 		}
 
 		id := generateID(format)
 		if err := h.service.Save(id, processed); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 		}
 
 		return c.JSON(ResizeResponse{Success: true, ID: id})
@@ -311,12 +331,12 @@ func (h *MediaHandler) Convert(c *fiber.Ctx) error {
 	format := strings.ToLower(c.FormValue("format", "png"))
 	processed, err := h.service.ConvertToFormat(img, format)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 	}
 
 	id := generateID(format)
 	if err := h.service.Save(id, processed); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 	}
 
 	return c.JSON(ResizeResponse{Success: true, ID: id})
@@ -381,7 +401,7 @@ func (h *MediaHandler) Compact(c *fiber.Ctx) error {
 
 		fileData, err := h.service.ProcessWithAutoRotate(imgBytes, opts)
 		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 		}
 
 		compressedSize := len(fileData)
@@ -392,7 +412,7 @@ func (h *MediaHandler) Compact(c *fiber.Ctx) error {
 
 		id := generateID(req.Format)
 		if err := h.service.Save(id, fileData); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 		}
 
 		return c.JSON(ResizeResponse{
@@ -416,6 +436,10 @@ func (h *MediaHandler) Compact(c *fiber.Ctx) error {
 	format := c.Query("format", "jpeg")
 	fit := c.Query("fit", "")
 
+	if width > 10000 || height > 10000 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "dimensions exceed maximum of 10000x10000"})
+	}
+
 	opts := domain.ProcessOptions{
 		Width:   width,
 		Height:  height,
@@ -426,7 +450,7 @@ func (h *MediaHandler) Compact(c *fiber.Ctx) error {
 
 	fileData, err := h.service.ProcessWithAutoRotate(body, opts)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 	}
 
 	compressedSize := len(fileData)
@@ -437,7 +461,7 @@ func (h *MediaHandler) Compact(c *fiber.Ctx) error {
 
 	id := generateID(format)
 	if err := h.service.Save(id, fileData); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 	}
 
 	return c.JSON(fiber.Map{
@@ -483,6 +507,9 @@ func (h *MediaHandler) BlurHash(c *fiber.Ctx) error {
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid base64 image"})
 		}
+		if !middleware.ValidateMagicBytes(imgBytes) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid image format"})
+		}
 		img, _, err = image.Decode(bytes.NewReader(imgBytes))
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Failed to decode image"})
@@ -499,7 +526,7 @@ func (h *MediaHandler) BlurHash(c *fiber.Ctx) error {
 
 	hash, err := h.service.GenerateBlurHash(img)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 	}
 
 	return c.JSON(fiber.Map{"blurhash": hash})
@@ -524,11 +551,11 @@ func (h *MediaHandler) Batch(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid JSON"})
 	}
 
-	if req.Image == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image is required"})
-	}
+		if req.Image == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image is required"})
+		}
 
-	imgBytes, err := base64.StdEncoding.DecodeString(req.Image)
+		imgBytes, err := base64.StdEncoding.DecodeString(req.Image)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid base64 image"})
 	}
@@ -537,8 +564,16 @@ func (h *MediaHandler) Batch(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "sizes array is required"})
 	}
 
+	const maxBatchSize = 20
+	if len(req.Sizes) > maxBatchSize {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "batch size exceeds maximum of 20"})
+	}
+
 	sizes := make([]services.BatchSize, len(req.Sizes))
 	for i, s := range req.Sizes {
+		if s.Width > 10000 || s.Height > 10000 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "dimensions exceed maximum of 10000x10000"})
+		}
 		sizes[i] = services.BatchSize{Width: s.Width, Height: s.Height}
 	}
 
@@ -562,7 +597,7 @@ func (h *MediaHandler) Batch(c *fiber.Ctx) error {
 
 	results, err := h.service.ProcessBatch(imgBytes, batchReq)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Image processing failed"})
 	}
 
 	return c.JSON(fiber.Map{
